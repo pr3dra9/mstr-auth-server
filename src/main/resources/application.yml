@@ -1,0 +1,4 @@
+## YAML Template.
+---
+spring:
+  application.name: auth-server
