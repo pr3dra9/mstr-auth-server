@@ -7,6 +7,8 @@ package rs.ac.bg.fon.mas.auth_server.config;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.core.GrantedAuthority;
@@ -34,7 +36,8 @@ public class SecurityConfig {
 
     private final ClientRepository clientRepository;
     private final UserRepository userRepo;
-
+    private static final Logger logger = LoggerFactory.getLogger(SecurityConfig.class);
+    
     public SecurityConfig(ClientRepository clientRepository, UserRepository userRepo) {
         this.clientRepository = clientRepository;
         this.userRepo = userRepo;
@@ -46,12 +49,19 @@ public class SecurityConfig {
             @Override
             public RegisteredClient findById(String id) {
                 Optional<Client> client = clientRepository.findById(Long.valueOf(id));
+                logger.debug(client.get().toString());
                 return client.map(this::toRegisteredClient).orElse(null);
             }
 
             @Override
             public RegisteredClient findByClientId(String clientId) {
+                logger.debug("Client ID: " + clientId);
                 Optional<Client> client = clientRepository.findByClientId(clientId);
+                
+                if (client.isEmpty())
+                    return null;
+                
+                logger.debug("Client ID: " + client.get());
                 return client.map(this::toRegisteredClient).orElse(null);
             }
 
