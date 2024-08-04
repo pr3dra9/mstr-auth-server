@@ -4,28 +4,16 @@
  */
 package rs.ac.bg.fon.mas.auth_server.config;
 
-import java.util.Optional;
+import java.util.Collections;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.oauth2.core.AuthorizationGrantType;
-import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
-import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
-import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
+import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
-import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
-import rs.ac.bg.fon.mas.auth_server.model.Client;
-import rs.ac.bg.fon.mas.auth_server.model.CustomUser;
-import rs.ac.bg.fon.mas.auth_server.repository.ClientRepository;
-import rs.ac.bg.fon.mas.auth_server.repository.UserRepository;
+import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
 
 /**
  *
@@ -34,99 +22,19 @@ import rs.ac.bg.fon.mas.auth_server.repository.UserRepository;
 @Configuration
 public class SecurityConfig {
 
-    private final ClientRepository clientRepository;
-    private final UserRepository userRepo;
-    private static final Logger logger = LoggerFactory.getLogger(SecurityConfig.class);
-    
-    public SecurityConfig(ClientRepository clientRepository, UserRepository userRepo) {
-        this.clientRepository = clientRepository;
-        this.userRepo = userRepo;
-    }
-
     @Bean
-    public RegisteredClientRepository registeredClientRepository() {
-        return new RegisteredClientRepository() {
-            @Override
-            public RegisteredClient findById(String id) {
-                Optional<Client> client = clientRepository.findById(Long.valueOf(id));
-                logger.debug(client.get().toString());
-                return client.map(this::toRegisteredClient).orElse(null);
-            }
-
-            @Override
-            public RegisteredClient findByClientId(String clientId) {
-                logger.debug("Client ID: " + clientId);
-                Optional<Client> client = clientRepository.findByClientId(clientId);
-                
-                if (client.isEmpty())
-                    return null;
-                
-                logger.debug("Client ID: " + client.get());
-                return client.map(this::toRegisteredClient).orElse(null);
-            }
-
-            private RegisteredClient toRegisteredClient(Client client) {
-                Set<String> scopesSet = client.getScopes();
-
-                Set<AuthorizationGrantType> grantTypesSet = client.getAuthorizationGrantTypes().stream()
-                        .map(AuthorizationGrantType::new) // Pretvara string u AuthorizationGrantType
-                        .collect(Collectors.toSet()); // Skuplja u set
-
-                ClientSettings clientSettings = ClientSettings.builder()
-                        .requireAuthorizationConsent(true)
-                        .build();
-                return RegisteredClient.withId(client.getId().toString())
-                        .clientId(client.getClientId())
-                        .clientSecret(client.getClientSecret())
-                        .scopes(scopes -> scopes.addAll(scopesSet)) // Postavljanje više vrednosti za scope
-                        .redirectUris(ru -> ru.addAll(client.getRedirectUris()))
-                        .authorizationGrantTypes(grantTypes -> grantTypes.addAll(grantTypesSet))
-                        .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
-                        .clientSettings(clientSettings)
-                        .build();
-            }
-
-            @Override
-            public void save(RegisteredClient registeredClient) {
-                Optional<Client> c = clientRepository.findByClientId(registeredClient.getClientId());
-                if (c.isPresent()) {
-                    return;
-                }
-                Client client = new Client();
-                client.setClientId(registeredClient.getClientId());
-                client.setClientSecret(registeredClient.getClientSecret());
-                client.setClientName(registeredClient.getClientName());
-                client.setScopes(registeredClient.getScopes());
-                client.setRedirectUris(registeredClient.getRedirectUris());
-                client.setAuthorizationGrantTypes(registeredClient.getAuthorizationGrantTypes().stream()
-                        .map(AuthorizationGrantType::getValue).collect(Collectors.toSet()));
-                clientRepository.save(client);
+    public OAuth2TokenCustomizer<JwtEncodingContext> jwtTokenCustomizer() {
+        return (context) -> {
+            if (OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
+                context.getClaims().claims((claims) -> {
+                    Set<String> roles = AuthorityUtils.authorityListToSet(context.getPrincipal().getAuthorities())
+                            .stream()
+                            //.map(c -> c.replaceFirst("^ROLE_", ""))
+                            .collect(Collectors.collectingAndThen(Collectors.toSet(), Collections::unmodifiableSet));
+                    claims.put("roles", roles);
+                });
             }
         };
-    }
-
-    @Bean
-    public UserDetailsService userService(UserRepository repo) {
-        return (username) -> {
-            CustomUser user = repo.findByUsername(username);
-            return asUser(user);
-        };
-    }
-
-    private UserDetails asUser(CustomUser user) {
-        if (user == null) {
-            return null;
-        }
-
-        Set<GrantedAuthority> grantedAuthorities = user.getAuthorities().stream()
-                .map(SimpleGrantedAuthority::new)
-                .collect(Collectors.toSet());
-
-        return User.withDefaultPasswordEncoder()
-                .username(user.getUsername())
-                .password(user.getPassword())
-                .authorities(grantedAuthorities)
-                .build();
     }
 
     @Bean
